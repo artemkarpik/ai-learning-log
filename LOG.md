@@ -43,5 +43,24 @@ Started rebuilding the bigram model as a neural network. Built the training set
   and training fixes `W`.
 
   ## Day 4
-  
+  The pulls cancel out exactly when the probabilities match the real frequencies. If the network says m comes after e more often than it really does, the downward pulls win and the score drops. If it says less often, the upward pulls win and the score rises. The only stable point, where W.grad becomes about zero and nothing moves anymore, is where the network’s probability for each letter equals how often that letter actually followed e.
 
+That’s why the trained network ends up matching your counting table: counting gives the real frequencies directly, and gradient descent gets there by tug-of-war. And it’s why the loss stops at about 2.45 instead of going to 0. The data itself is uncertain, since many different letters can follow e, and no model with one letter of context can predict it perfectly.
+
+and this loss.backward pushed them to their respective spots, but still we have to think about probabilities right like just because it happened doesn't mean it always happens
+
+guess, measure, adjust, repeat. W is a grid of 729 dials. You start with the dials set randomly, measure how bad the predictions are (the loss), figure out which way to turn each dial to make the loss smaller (backward), turn every dial a little in that direction (the update), and repeat. After enough rounds, the dials end up in a good position. That’s all training is, here and in GPT.
+
+Ok finished the video. So from what I understand, the neural network part of this works by having a dataset of names, then putting each of those names in a bigram tensor kind of list by their integers, having . as the first and last letters. Then we create a new W matrix of size 27/27 with random values, create a new list xenc which makes a list of  lists size 27 of the input xs with a 1 in the position where the original xs stoi would be, then we multiply that list by the matrix W which in turn gives us a matrix of [5,27], then we manipulate that data by exponentioating it and taking the probabilities of every row to add up to 1 in order to "fake" that data looking like probabilities even thought they ar ebad ones, and then calculate a loss from that using negative log likelihood, then using.backward to go back through all the steps in order to tune the gradients either up or down depending on how they shift the loss up or down. I know some of this doesn't make sense probably, so with the parts that I didn't put clearly I didn't put clearly because I wasn't sure or didn't know so help explain, mostly with the matrix parts
+
+You’ve got almost all of it. Here’s your summary with the fuzzy parts fixed, followed by the matrix flow in one picture.
+
+Your summary, corrected step by step
+Dataset to pairs. ✅ Right. One fix: it’s two separate 1D tensors, xs (the current letter of each pair) and ys (the correct next letter), lined up so xs[i] and ys[i] form one bigram.
+Random W, 27×27. ✅ Right. It’s one shared grid for every bigram, just a starting guess.
+One-hot xenc. ✅ Exactly right: one row of 27 per example, with a 1 at that letter’s position. Shape [number of examples, 27].
+xenc @ W. ✅ Right, with one fix: [5, 27] was only because “emma” has 5 bigrams. On the full dataset it’s [228146, 27]. The key idea: each one-hot row picks out one row of W. So row i of the result is just “W’s row for the letter xs[i]”: 27 scores for what comes next.
+exp and normalize. Mostly right. Fix the word “fake”: the probabilities are completely real and valid; each row truly sums to 1. What’s “fake” is the step in between: exp makes the scores act like counts (“fake counts”), similar to N. And the probabilities are only bad at the start; training makes them good.
+The loss. ✅ Right, and here’s the missing detail: for each row, you pick out only the probability given to the correct answer (probs[torch.arange(num), ys]), take the log, average, and flip the sign. The 26 wrong letters aren’t looked at directly.
+backward(). One important fix: backward() doesn’t tune anything. It calculates a gradient for every number in W (stored in W.grad): which way, and how much, that number should move to lower the loss. The update (W.data += -50 * W.grad) is what tunes W. The gradients are the directions, and W is what changes.
+The step you left out: repeat. Reset the gradients, run the forward pass again, compute the loss, backward(), update, and do that 100 or more times. Each loop, the loss drops a bit.

@@ -64,3 +64,13 @@ exp and normalize. Mostly right. Fix the word “fake”: the probabilities are 
 The loss. ✅ Right, and here’s the missing detail: for each row, you pick out only the probability given to the correct answer (probs[torch.arange(num), ys]), take the log, average, and flip the sign. The 26 wrong letters aren’t looked at directly.
 backward(). One important fix: backward() doesn’t tune anything. It calculates a gradient for every number in W (stored in W.grad): which way, and how much, that number should move to lower the loss. The update (W.data += -50 * W.grad) is what tunes W. The gradients are the directions, and W is what changes.
 The step you left out: repeat. Reset the gradients, run the forward pass again, compute the loss, backward(), update, and do that 100 or more times. Each loop, the loss drops a bit.
+
+## Day 5
+
+Each pass does four things:
+
+ix = stoi[ch] turns the current character into its number.
+X.append(context) saves the 3 letters before this character, as the input.
+Y.append(ix) saves this character as the answer.
+context = context[1:] + [ix] slides the window: drop the oldest letter, add this one. The current character becomes part of the context for the next pass.
+

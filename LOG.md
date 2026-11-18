@@ -74,3 +74,111 @@ X.append(context) saves the 3 letters before this character, as the input.
 Y.append(ix) saves this character as the answer.
 context = context[1:] + [ix] slides the window: drop the oldest letter, add this one. The current character becomes part of the context for the next pass.
 
+X holds the data and decides which rows of C to copy; C is random and gets learned; emb = C[X] has shape [32, 3, 2].
+
+## Day 6-10
+Finished makemore, understand it mostly, still a little confused and not totally 100% on the matrix multiplications and manipulations within the softmax and overall neuron steps
+
+## Day 11
+OWASP TOP 10 LLM Applications. Write about 3 of them: 
+1. Prompt injection: hidden instructions inside content change what the LLM does,
+   because it can't reliably tell data from instructions.
+   - Direct: the user types the attack ("ignore previous instructions...").
+   - Indirect: the attack is hidden in content the AI reads (a web page, email, PDF),
+     written by a third party. The user can be the victim.
+   - It can't be fully prevented yet, so you design the system around the LLM to limit
+     damage: least privilege (only the tools it needs, always), human approval before
+     risky actions like sending emails, and treating everything it reads as untrusted.
+
+2. Sensitive information disclosure: the LLM reveals information it shouldn't.
+   Info can leak from 3 places:
+   - Training data: the model memorized private info while training and repeats it.
+   - Data it has access to: documents, databases, or other users' records loaded into
+     its context. Someone asks for it, or an injection tricks it into revealing it.
+   - Its hidden instructions (system prompt): it gets talked into repeating its setup,
+     including any secrets in it. This is what Gandalf is about.
+   Big lesson: an LLM can't reliably keep a secret, so don't rely on it to protect info.
+   Defenses keep the protection OUTSIDE the model:
+   - Only give the model data the current user is allowed to see (checked in normal code).
+   - Never put passwords or API keys in the prompt.
+   - Remove personal info from training data.
+   - Scan the output for things like card numbers or keys before showing it (backup layer).
+   Same pattern as prompt injection: the model isn't a reliable gatekeeper, so put the
+   walls around it.
+
+3. Excessive agency: the LLM can take actions beyond what it should, causing damage
+   when it makes a mistake or gets injected. Three kinds of "too much":
+   - Too many tools: tools it doesn't need, including leftovers devs forgot to remove.
+   - Too-powerful tools: e.g. a database tool that can delete when it only needs to read.
+   - Too much autonomy: high-impact actions (sending emails, payments) with no human check.
+   Connection to prompt injection: injection changes what the AI says; agency is what
+   turns that into real damage. An injected AI that can only read is low risk; one that
+   can send emails is dangerous.
+   Defenses (layers, not one fix):
+   - Least privilege: only the tools it needs, with the smallest permissions (read-only
+     when possible).
+   - Human approval before high-impact actions.
+   - Permission checks enforced in normal code, not by asking the model to behave.
+
+After 3Blue1Brown vid summary
+## 3Blue1Brown: Transformers, the tech behind LLMs — Nov 16
+
+Learned:
+- An LLM is trained on huge amounts of text, like makemore was trained on names.
+  Its job: given a chunk of text, predict the next token.
+- A token is a word or a piece of a word. Each token gets its own vector (embedding)
+  in a high-dimensional space. With training, tokens used in similar ways end up
+  close together, same idea as the letter embeddings in my MLP.
+- GPT only looks BACKWARD: it predicts the next token from the tokens before it.
+  Masking inside attention makes sure it can't see the future.
+- Inside the model, two kinds of blocks alternate many times:
+  - Attention: tokens "talk" to each other. Each token pulls in info from earlier
+    tokens to update its meaning (e.g. "bank" near "river" vs. near "money").
+  - MLP: each token is processed on its own. Possibly where much of the model's
+    stored knowledge lives.
+- At the end, only the LAST token's vector is used: it's turned into a score for every
+  token in the vocabulary (unembedding), then softmax gives probabilities.
+- Temperature divides the scores before softmax. Low temperature = sharper, almost
+  always picks the top token. High temperature = flatter, less likely tokens get a
+  boost, so it's more random/creative.
+- Generation is a loop: predict, sample a token, append it, repeat. Same as my
+  makemore name sampler.
+- A chatbot is this autocomplete model with a system prompt placed in front of the
+  conversation. The system prompt and the user's message are both just text in the
+  same stream, which is why prompt injection works (like "repeat everything above"
+  pulling out BLUEFALCON).
+
+## Let's build GPT, session 1 — Nov 17–18
+
+Learned:
+- Dataset: all of Shakespeare (~1.1M characters, 65 unique). Character-level
+  tokenization: `stoi`/`itos`, wrapped in `encode` (text → numbers) and `decode`
+  (numbers → text). Real GPTs use subword tokens instead.
+- 90% train / 10% validation split.
+- `get_batch`: picks random chunks of 8 characters. `yb` is the same text as `xb`,
+  shifted one character later, so `yb[b, t]` is the answer for position t.
+  One chunk of 8 gives 8 training examples (contexts of length 1 to 8).
+- B, T, C = Batch (chunks at once), Time (positions per chunk), Channels (numbers
+  per position). Logits are (B, T, C) = (32, 8, 65).
+- Three kinds of tensors:
+  - Data (xb, yb, idx): real character IDs, whole numbers, never change.
+  - Parameters (the embedding table): start random, learned through training.
+  - Computed values (logits, probs): calculated from data + parameters each
+    forward pass, only meaningful once the parameters are trained.
+- Models are classes that inherit from `nn.Module`:
+  - `__init__` is the constructor (like Java). `super().__init__()` runs the
+    parent's setup first. `self` = the object itself (Java's `this`).
+  - `nn.Module` gives free bookkeeping: `m.parameters()`, and `m(x)` runs `forward`.
+- `nn.Embedding(65, 65)` = the bigram `W` from makemore: each character looks up
+  a row of 65 scores for the next character.
+- `forward`: reshapes logits (B, T, C) → (B*T, C) and targets → (B*T) because
+  cross_entropy wants flat lists, keeping each prediction paired with its answer.
+- `generate`: run the model, keep only the LAST position (`logits[:, -1, :]`),
+  softmax, sample one character, append with `torch.cat(..., dim=1)`, repeat.
+  Same as my makemore name sampler.
+- Training: AdamW optimizer (gradient descent with momentum + per-parameter step
+  sizes + weight decay). `zero_grad` → `backward` → `step` = the same loop as
+  makemore, packaged. Loss went from ~4.8 to ~2.5.
+- Limitation: the model gets chunks of 8 characters but only uses the CURRENT one
+  at each position, ignoring the other 7. Self-attention fixes this next.
+
